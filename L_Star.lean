@@ -72,13 +72,46 @@ def for_Alph (Alph : List Char) (Alph_loop : List Char)
                     | none => for_Alph Alph rem Q T q Mem
   | [] => none
 
+def findState (Alph : List Char) (Q_loop : List String)
+  (Q : List String) (T : List String) (q : String) (a : Char) (Mem : String → Bool)
+  : String :=
+  match Q_loop with
+  | q0 :: rem => if T_Equivalent Alph T q0 (q ++ Char.toString a) Mem then
+    q0 else findState Alph rem Q T q a Mem
+  | [] => "" -- unreachable case
+
+theorem find_state_correctness : ("" ∈ Q ∧ (∀ x, x ∈ Q_loop → x ∈ Q)) ∧ (findState Alph Q_loop Q T q a Mem = q0) → q0 ∈ Q := by
+  induction Q_loop with
+  | nil => intro h
+           have main :findState Alph [] Q T q a Mem = q0 := h.right
+           unfold findState at main
+           have h2 : "" ∈ Q := h.left.left
+           rw [main] at h2
+           exact h2
+  | cons head tail tail_ih => intro h
+                              have main : findState Alph (head :: tail) Q T q a Mem = q0 := h.right
+                              unfold findState at main
+                              split at main
+                              case cons.isTrue => have h3 : q0 ∈ head :: tail → q0 ∈ Q := h.left.right q0
+                                                  rw [List.mem_cons] at h3
+                                                  have h_symm : q0 = head := by rw [main]
+                                                  have hx : q0 ∈ Q := h3 (Or.inl h_symm)
+                                                  exact hx
+                              case cons.isFalse => have n : q0 ∈ Q := by have h1 : "" ∈ Q := h.left.left
+                                                                         have h2 : ∀ (x : String), x ∈ tail → x ∈ Q := by
+                                                                            intro r
+                                                                            have hr : r ∈ head :: tail → r ∈ Q := h.left.right r
+                                                                            rw [List.mem_cons] at hr
+                                                                            intro hyp
+                                                                            exact hr (Or.inr hyp)
+                                                                         exact tail_ih (And.intro (And.intro h1 h2) main)
+                                                   exact n
+
 def toAutomaton (Alph : List Char) (T : List String) (Q : List String) (Mem : String → Bool)
   (h : "" ∈ Q): FiniteAutomaton Alph :=
   {Q := Q.map (fun x => {name := x}), S := {name := ""},
     Accept := (findAcceptingStates Q Mem).map (fun x => {name := x}), δ := fun q0 => fun a =>
-    match for_Q2 Alph Q Q T q0.name a Mem with
-    | some (s, c) => {name := s ++ Char.toString c}
-    | none => {name := ""},
+    {name := findState Alph Q Q T q0.name a Mem},
     start_in_Q := by
       rw [List.mem_map]
       exact ⟨"", by apply And.intro
@@ -94,7 +127,16 @@ def toAutomaton (Alph : List Char) (T : List String) (Q : List String) (Mem : St
       | ⟨w, hw⟩ => exact ⟨w, by apply And.intro
                                 case right => exact hw.right
                                 case left => exact accepting_in_q hw.left⟩
-  }
+    , trans_in_Q := by
+      intro elem1
+      intro h1
+      rewrite [List.mem_map] at h1
+      intro elem2
+      intro
+      rewrite [List.mem_map]
+      simp
+      exact find_state_correctness (And.intro (And.intro h (fun x y => y)) (rfl))
+}
 
 def complete_loop (Alph : List Char) (Q : List String) (Q_Iterator : List String)
   (T : List String) (Mem : String → Bool)
@@ -129,4 +171,5 @@ def LStar (Alph : List Char) (Q : List String) (T : List String) (Mem : String �
   : FiniteAutomaton Alph := match Eqiv dfa with
     | none => dfa
     | some w => LStar Alph Q_compl (removeStringDuplicates (T ++ getSuffixes w.data).mergeSort) Mem Eqiv reg
-    where Q_compl := complete Alph T Q Mem reg; dfa := toAutomaton Alph T Q_compl Mem 
+    where Q_compl := complete Alph T Q Mem reg; dfa := toAutomaton Alph T Q_compl Mem
+
