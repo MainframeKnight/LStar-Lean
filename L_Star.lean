@@ -1,3 +1,4 @@
+open Classical
 structure DFAState := (name : String) deriving BEq
 
 structure FiniteAutomaton (Alph : List Char) :=
@@ -14,11 +15,6 @@ def validateWord (DFA : FiniteAutomaton Alph)
   match word with
   | [] => DFA.Accept.contains curState
   | w :: lst => validateWord DFA lst (DFA.δ curState w)
-
-def minimal_regularity (Alph : List Char) (Mem : String → Bool) : Prop :=
-  ∃automaton : FiniteAutomaton Alph, (∀w : List Char, Mem (w.toString) = validateWord automaton w automaton.S
-  ∧ ∀automaton2 : FiniteAutomaton Alph, ∀w : List Char, (Mem (w.toString) = validateWord automaton2 w automaton2.S
-  → sizeOf automaton2.Q >= sizeOf automaton.Q))
 
 def findAcceptingStates (Q : List String) (Mem : String → Bool) : List String :=
   match Q with
@@ -55,22 +51,6 @@ def T_Equivalent (Alph : List Char) (T : List String)
     match T with
     | [] => true
     | s :: strs => (Mem (w1 ++ s) = Mem (w2 ++ s)) ∧ T_Equivalent Alph strs w1 w2 Mem
-
-def for_Q2 (Alph : List Char) (Q_loop : List String)
-  (Q : List String) (T : List String) (q : String) (a : Char) (Mem : String → Bool)
-  : Option (String × Char) :=
-  match Q_loop with
-  | q0 :: rem => if T_Equivalent Alph T q0 (q ++ Char.toString a) Mem then
-    for_Q2 Alph rem Q T q a Mem else some (q, a)
-  | [] => none
-
-def for_Alph (Alph : List Char) (Alph_loop : List Char)
-  (Q : List String) (T : List String) (q : String) (Mem : String → Bool) : Option (String × Char) :=
-  match Alph_loop with
-  | a :: rem => match for_Q2 Alph Q Q T q a Mem with
-                    | some (q1, b) => some (q1, b)
-                    | none => for_Alph Alph rem Q T q Mem
-  | [] => none
 
 def findState (Alph : List Char) (Q_loop : List String)
   (Q : List String) (T : List String) (q : String) (a : Char) (Mem : String → Bool)
@@ -138,21 +118,6 @@ def toAutomaton (Alph : List Char) (T : List String) (Q : List String) (Mem : St
       exact find_state_correctness (And.intro (And.intro h (fun x y => y)) (rfl))
 }
 
-def complete_loop (Alph : List Char) (Q : List String) (Q_Iterator : List String)
-  (T : List String) (Mem : String → Bool)
-  : Option (String × Char) :=
-  match Q_Iterator with
-  | q0 :: rem => match for_Alph Alph Alph Q T q0 Mem with
-                     | some (q1, b) => some (q1, b)
-                     | none => complete_loop Alph Q rem T Mem
-  | [] => none
-
-def complete (Alph : List Char) (T : List String) (Q : List String) (Mem : String → Bool)
-  (reg : minimal_regularity Alph Mem): List String :=
-  match complete_loop Alph Q Q T Mem with
-  | some (s, c) => complete Alph T ((s ++ Char.toString c) :: Q) Mem reg
-  | none => Q
-
 def getSuffixes (w : List Char) : List String :=
   match w with
   | _ :: tail => tail.toString :: getSuffixes tail
@@ -165,11 +130,80 @@ def removeStringDuplicates (l : List String) : List String :=
   | a :: [] => [a]
   | [] => []
 
-def LStar (Alph : List Char) (Q : List String) (T : List String) (Mem : String → Bool)
-  (Eqiv : FiniteAutomaton Alph → Option (String))
-  (reg : minimal_regularity Alph Mem)
-  : FiniteAutomaton Alph := match Eqiv dfa with
-    | none => dfa
-    | some w => LStar Alph Q_compl (removeStringDuplicates (T ++ getSuffixes w.data).mergeSort) Mem Eqiv reg
-    where Q_compl := complete Alph T Q Mem reg; dfa := toAutomaton Alph T Q_compl Mem
+def for_Q2 (Alph : List Char) (Q_loop : List String)
+  (Q : List String) (T : List String) (q : String) (a : Char) (Mem : String → Bool)
+  : Option (String × Char) :=
+  match Q_loop with
+  | q0 :: rem => if T_Equivalent Alph T q0 (q ++ Char.toString a) Mem then
+    for_Q2 Alph rem Q T q a Mem else some (q, a)
+  | [] => none
 
+def for_Alph (Alph : List Char) (Alph_loop : List Char)
+  (Q : List String) (T : List String) (q : String) (Mem : String → Bool) : Option (String × Char) :=
+  match Alph_loop with
+  | a :: rem => match for_Q2 Alph Q Q T q a Mem with
+                    | some (q1, b) => some (q1, b)
+                    | none => for_Alph Alph rem Q T q Mem
+  | [] => none
+
+def complete_loop (Alph : List Char) (Q : List String) (Q_Iterator : List String)
+  (T : List String) (Mem : String → Bool)
+  : Option (String × Char) :=
+  match Q_Iterator with
+  | q0 :: rem => match for_Alph Alph Alph Q T q0 Mem with
+                     | some (q1, b) => some (q1, b)
+                     | none => complete_loop Alph Q rem T Mem
+  | [] => none
+
+def complete (Alph : List Char) (T : List String) (Q : List String) (Mem : String → Bool)
+  (states_bound : Nat): List String :=
+  if states_bound <= 0 then Q else
+  match complete_loop Alph Q Q T Mem with
+  | some (s, c) => complete Alph T ((s ++ Char.toString c) :: Q) Mem (states_bound - 1)
+  | none => Q
+
+theorem complete_increasing : n > 0 ∧ (∃w, Mem w = true ∧ validateWord (toAutomaton Alph T Q Mem h) w.data (toAutomaton Alph T Q Mem h).S = false) →
+  sizeOf Q < sizeOf (complete Alph (removeStringDuplicates (T ++ getSuffixes w).mergeSort) Q Mem n) := by
+  intro h
+  rename "" ∈ Q => emp
+
+
+theorem complete_nondecreasing : q ∈ Q → ∀L1, q ∈ complete Alph T (L1 ++ Q) Mem n := by
+  induction n with
+  | zero => intro h
+            intro lst
+            unfold complete
+            simp
+            apply Or.inr h
+  | succ n n_ind => intro h
+                    intro lst
+                    unfold complete
+                    split
+                    case succ.isTrue => rw [List.mem_append]
+                                        apply Or.inr h
+                    case succ.isFalse => split
+                                         case h_2 => rw [List.mem_append]
+                                                     apply Or.inr h
+                                         case h_1 x q1 _ => simp
+                                                            rw [← List.cons_append]
+                                                            exact n_ind h ((x ++ q1.toString) :: lst)
+
+noncomputable def LStar (Alph : List Char) (Q : List String) (h : "" ∈ Q) (T : List String) (Mem : String → Bool)
+  (Eqiv : FiniteAutomaton Alph → Option (String))
+  (reg : ∃ n > 0, ∀automaton : FiniteAutomaton Alph, (Mem w0 = true ↔ validateWord automaton w0.data automaton.S) → sizeOf automaton.Q <= n)
+  (corr : ∀M : FiniteAutomaton Alph, ∀w1, Eqiv M = some w1 → Mem w1 = true ∧ validateWord M w1.data M.S  = false)
+  : FiniteAutomaton Alph := if sizeOf Q < reg.choose then
+    match h_eqiv : Eqiv (toAutomaton Alph T Q Mem (by exact h)) with
+    | none => dfa
+    | some w => LStar Alph (complete Alph ((removeStringDuplicates (T ++ getSuffixes w.data).mergeSort)) Q Mem reg.choose) (by apply complete_nondecreasing h [])
+      (removeStringDuplicates (T ++ getSuffixes w.data).mergeSort) Mem Eqiv reg corr
+    else dfa
+    termination_by reg.choose - sizeOf Q
+    decreasing_by
+      rename sizeOf Q < reg.choose => h2
+      rename String => ex
+      have h3 : sizeOf Q < sizeOf (complete Alph (removeStringDuplicates (T ++ getSuffixes ex.data).mergeSort) Q Mem reg.choose) := by
+        exact complete_increasing (And.intro reg.choose_spec.left
+         ⟨ex, corr (toAutomaton Alph T Q Mem (by exact h)) ex h_eqiv⟩)
+      exact Nat.sub_lt_sub_left h2 h3
+    where dfa := toAutomaton Alph T (complete Alph T Q Mem reg.choose) Mem (by apply complete_nondecreasing h [])
